@@ -1,0 +1,18 @@
+{
+  "domain": "open_banking",
+  "name": "Open Banking Integration",
+  "documentation": "https://github.com/rahulpdev/hass_open_banking",
+  "requirements": [
+    "nordigen_account==0.3.1"
+  ],
+  "version": "0.0.1",
+  "config_flow": true,
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/rahulpdev/hass_open_banking/issues",
+  "codeowners": [
+    "@rahulpdev"
+  ],
+  "loggers": [
+    "open_banking"
+  ]
+}
