@@ -93,7 +93,7 @@ class OpenBankingDataUpdateCoordinator(DataUpdateCoordinator):
         _LOGGER.warning("Type of self.entry inside _async_update_data: %s", type(self.entry))
 
         if self.data:
-            _LOGGER.debug("Using cached coordinator data.")
+            _LOGGER.warning("Using cached coordinator data: %s", self.data)
             return self.data  # Return cached data
 
         try:
