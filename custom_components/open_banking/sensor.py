@@ -61,7 +61,8 @@ async def async_setup_entry(
 
             for bal in account.balances:
                 balance_type: str = bal["balanceType"]
-                unique_id: str = f"{acct_id}_{balance_type}"
+                # Generate the unique ID in the same way as the sensor class does
+                unique_id: str = f"{account.name}_{balance_type}_{entry.entry_id}"
 
                 if unique_id not in existing_entity_ids:
                     sensor = OpenBankingBalanceSensor(
@@ -80,7 +81,6 @@ async def async_setup_entry(
 
     # Ensure data is fetched before attempting entity creation
     await coordinator.async_config_entry_first_refresh()
-    _schedule_add_entities
 
 
 class OpenBankingBalanceSensor(SensorEntity):
@@ -202,10 +202,10 @@ class OpenBankingBalanceSensor(SensorEntity):
         """
         Handle actions when the sensor entity is added to Home Assistant.
         """
-        self.async_write_ha_state()
         self.async_on_remove(
             self.coordinator.async_add_listener(self.async_write_ha_state)
         )
+        self.async_write_ha_state()
 
     @property
     def available(self) -> bool:
