@@ -113,6 +113,10 @@ class OpenBankingDataUpdateCoordinator(DataUpdateCoordinator):
 
             _LOGGER.warning("Nordigen updated coordinator data: %s", self.data)
 
+            self.hass.async_create_task(self.async_request_refresh())
+
+            _LOGGER.warning("Notified sensors that data has changed: %s", self.data)
+
             return self.data
 
         except NordigenAPIError as e:

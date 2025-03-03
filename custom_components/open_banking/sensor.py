@@ -80,7 +80,7 @@ async def async_setup_entry(
 
     # Ensure data is fetched before attempting entity creation
     await coordinator.async_config_entry_first_refresh()
-    coordinator.async_add_listener(_schedule_add_entities)
+    _schedule_add_entities
 
 
 class OpenBankingBalanceSensor(SensorEntity):
