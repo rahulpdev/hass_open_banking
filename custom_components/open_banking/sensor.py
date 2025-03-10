@@ -150,6 +150,11 @@ class OpenBankingBalanceSensor(SensorEntity):
         Returns:
             float: The current balance amount.
         """
+        _LOGGER.warning(
+            "Fetching native_value for entity: %s | Account: %s | Data: %s",
+            self.entity_id, self._account._account_id, self.coordinator.data
+        )
+
         for bal in self._account.balances:
             if bal["balanceType"] == self._balance_type:
                 amount = bal.get("amount")
@@ -203,12 +208,22 @@ class OpenBankingBalanceSensor(SensorEntity):
         """
         Ensure Home Assistant registers state and attribute updates when coordinator data updates.
         """
+        _LOGGER.warning(
+            "Sensor update triggered for entity: %s | Account: %s | Data: %s",
+            self.entity_id, self._account._account_id, self.coordinator.data
+        )
+
         self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:
         """
         Handle actions when the sensor entity is added to Home Assistant.
         """
+        _LOGGER.warning(
+            "Sensor entity added to Home Assistant: %s | Account: %s | Data: %s",
+            self.entity_id, self._account._account_id, self.coordinator.data
+        )
+        
         self.async_on_remove(
             self.coordinator.async_add_listener(self.async_write_ha_state)
         )
