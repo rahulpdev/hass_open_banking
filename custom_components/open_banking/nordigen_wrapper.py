@@ -5,6 +5,7 @@ from nordigen_account import create_nordigen_client, BankAccountManager, Nordige
 
 _LOGGER = logging.getLogger(__name__)
 
+
 class NordigenWrapper:
     """A wrapper around BankAccountManager to manage and update bank accounts."""
 

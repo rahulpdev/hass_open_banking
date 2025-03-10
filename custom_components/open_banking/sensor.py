@@ -80,7 +80,8 @@ async def async_setup_entry(
             async_add_entities(entities)
 
     # Ensure data is fetched before attempting entity creation
-    await coordinator.async_config_entry_first_refresh()
+    if not coordinator.last_update_success:
+        await coordinator.async_config_entry_first_refresh()
 
 
 class OpenBankingBalanceSensor(SensorEntity):
@@ -197,6 +198,12 @@ class OpenBankingBalanceSensor(SensorEntity):
         Polling is disabled; state updates are handled via the coordinator.
         """
         pass
+
+    async def _handle_coordinator_update(self) -> None:
+        """
+        Ensure Home Assistant registers state and attribute updates when coordinator data updates.
+        """
+        self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:
         """
