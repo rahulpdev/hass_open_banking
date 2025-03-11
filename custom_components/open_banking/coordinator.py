@@ -87,12 +87,12 @@ class OpenBankingDataUpdateCoordinator(DataUpdateCoordinator):
         Raises:
             UpdateFailed: If there is an issue retrieving data from the Nordigen API.
         """
-        _LOGGER.debug("Nordigen is retrieving accounts!")
+        _LOGGER.warning("Nordigen is retrieving accounts!")
 
         try:
-            _LOGGER.debug("Calling update_all_accounts()")
+            _LOGGER.warning("Calling update_all_accounts()")
             await self.hass.async_add_executor_job(self.wrapper.update_all_accounts)
-            _LOGGER.debug("Nordigen retrieved accounts: %s", self.wrapper.accounts)
+            _LOGGER.warning("Nordigen retrieved accounts: %s", self.wrapper.accounts)
 
             if not self.wrapper.accounts:
                 _LOGGER.warning("No accounts found in Nordigen API response.")
@@ -105,11 +105,11 @@ class OpenBankingDataUpdateCoordinator(DataUpdateCoordinator):
             for account in accounts:
                 account._last_updated = last_updated
 
-            _LOGGER.debug("Nordigen updated account data with timestamp: %s", last_updated)
+            _LOGGER.warning("Nordigen updated account data with timestamp: %s", last_updated)
             
             # Always return fresh data, don't trigger another refresh
             self.data = accounts
-            
+
             return accounts
 
         except NordigenAPIError as e:

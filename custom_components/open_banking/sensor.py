@@ -28,21 +28,26 @@ async def async_setup_entry(
         entry (ConfigEntry): The configuration entry for the integration.
         async_add_entities (AddEntitiesCallback): Callback function to add entities to Home Assistant.
     """
-    _LOGGER.debug("Open Banking sensor setup is starting!")
+    _LOGGER.warning("Open Banking sensor setup is starting!")
     coordinator: OpenBankingDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
 
-    # Ensure data is fetched before creating entities
-    if not coordinator.last_update_success and not coordinator.data:
-        await coordinator.async_config_entry_first_refresh()
+    # Always ensure data is fetched during initial setup
+    _LOGGER.warning("Checking if data needs to be fetched: last_update_success=%s, has_data=%s", 
+                 coordinator.last_update_success, bool(coordinator.data))
     
-    # Create entities directly from the current data
+    if not coordinator.data:
+        _LOGGER.warning("No data available, triggering first refresh")
+        await coordinator.async_config_entry_first_refresh()
+        _LOGGER.warning("After refresh: has_data=%s", bool(coordinator.data))
+    
+    # Create entities from the data (if available)
     if coordinator.data:
         entities: List[OpenBankingBalanceSensor] = []
         platform = async_get_current_platform()
         existing_entity_ids = {entity.unique_id for entity in platform.entities.values()}
 
         for account in coordinator.data:
-            _LOGGER.debug("Creating sensors for account: %s", account._account_id)
+            _LOGGER.warning("Creating sensors for account: %s", account._account_id)
             
             for bal in account.balances:
                 balance_type: str = bal["balanceType"]
@@ -59,7 +64,7 @@ async def async_setup_entry(
                     existing_entity_ids.add(unique_id)
 
         if entities:
-            _LOGGER.debug("Adding %d new sensors", len(entities))
+            _LOGGER.warning("Adding %d new sensors", len(entities))
             async_add_entities(entities)
 
 
@@ -153,13 +158,13 @@ class OpenBankingBalanceSensor(CoordinatorEntity, SensorEntity):
         """
         account = self._account
         if not account:
-            _LOGGER.debug(
+            _LOGGER.warning(
                 "No account data found for entity: %s | Account ID: %s",
                 self.entity_id, self._account_id
             )
             return None
             
-        _LOGGER.debug(
+        _LOGGER.warning(
             "Fetching native_value for entity: %s | Account: %s",
             self.entity_id, account._account_id
         )
@@ -170,7 +175,7 @@ class OpenBankingBalanceSensor(CoordinatorEntity, SensorEntity):
 
                 # Ensure amount is valid
                 if amount is None or amount == "":
-                    _LOGGER.debug(
+                    _LOGGER.warning(
                         "Balance amount for %s is None or empty, setting to 0.0",
                         self._attr_unique_id
                     )
@@ -178,7 +183,7 @@ class OpenBankingBalanceSensor(CoordinatorEntity, SensorEntity):
 
                 try:
                     value = float(amount)
-                    _LOGGER.debug(
+                    _LOGGER.warning(
                         "Sensor value: entity_id=%s, balance_type=%s, value=%.2f",
                         self.entity_id,
                         self._balance_type,

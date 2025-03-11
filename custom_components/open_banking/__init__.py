@@ -37,12 +37,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "coordinator": coordinator
     }
 
-    _LOGGER.debug("Setting up Nordigen sensors...")
+    _LOGGER.warning("Setting up Nordigen sensors...")
     
     # First refresh will be done during sensor setup to prevent multiple API calls
     await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
 
-    _LOGGER.debug("Nordigen Account integration successfully set up.")
+    _LOGGER.warning("Nordigen Account integration successfully set up.")
 
     return True
 
