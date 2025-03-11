@@ -87,37 +87,30 @@ class OpenBankingDataUpdateCoordinator(DataUpdateCoordinator):
         Raises:
             UpdateFailed: If there is an issue retrieving data from the Nordigen API.
         """
-        _LOGGER.warning("Nordigen is retrieving accounts!")
-
-        # Debug log for self.entry type
-        _LOGGER.warning("Type of self.entry inside _async_update_data: %s", type(self.entry))
-
-        if self.data:
-            _LOGGER.warning("Using cached coordinator data: %s", self.data)
-            return self.data  # Return cached data
+        _LOGGER.debug("Nordigen is retrieving accounts!")
 
         try:
-            _LOGGER.warning("Calling update_all_accounts()")
+            _LOGGER.debug("Calling update_all_accounts()")
             await self.hass.async_add_executor_job(self.wrapper.update_all_accounts)
-            _LOGGER.warning("Nordigen retrieved accounts: %s", self.wrapper.accounts)
+            _LOGGER.debug("Nordigen retrieved accounts: %s", self.wrapper.accounts)
 
             if not self.wrapper.accounts:
                 _LOGGER.warning("No accounts found in Nordigen API response.")
                 raise UpdateFailed("No accounts found. Ensure bank authorization is complete.")
 
+            # Update timestamp on all accounts
             last_updated = datetime.now(timezone.utc).isoformat()
-            self.data = self.wrapper.accounts
-
-            for account in self.data:
+            accounts = self.wrapper.accounts
+            
+            for account in accounts:
                 account._last_updated = last_updated
 
-            _LOGGER.warning("Nordigen updated coordinator data: %s", self.data)
-
-            self.hass.async_create_task(self.async_request_refresh())
-
-            _LOGGER.warning("Notified sensors that data has changed: %s", self.data)
-
-            return self.data
+            _LOGGER.debug("Nordigen updated account data with timestamp: %s", last_updated)
+            
+            # Always return fresh data, don't trigger another refresh
+            self.data = accounts
+            
+            return accounts
 
         except NordigenAPIError as e:
             _LOGGER.warning("Nordigen API issue encountered: %s", e)

@@ -6,6 +6,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback, async_get_current_platform
 from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import OpenBankingDataUpdateCoordinator
@@ -27,41 +28,24 @@ async def async_setup_entry(
         entry (ConfigEntry): The configuration entry for the integration.
         async_add_entities (AddEntitiesCallback): Callback function to add entities to Home Assistant.
     """
-    _LOGGER.warning("Open Banking sensor setup is starting!") # REMOVE THIS LINE
+    _LOGGER.debug("Open Banking sensor setup is starting!")
     coordinator: OpenBankingDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
 
-    new_sensors: List[OpenBankingBalanceSensor] = []
-
-    @coordinator.async_add_listener
-    def _schedule_add_entities() -> None:
-        """
-        Process and register sensors based on retrieved Open Banking account data.
-        """
-        _LOGGER.warning("Open Banking coordinator data: %s", coordinator.data) # REMOVE THIS LINE
-
-        if coordinator.data is None:
-            _LOGGER.warning("No account data available. Using cached values if available.") # CHANGE TO DEBUG
-            return
-
-        if not coordinator.data:  # <-- Prevents execution if no data is available
-            _LOGGER.warning("No account data available. Skipping sensor setup.") # CHANGE TO DEBUG
-            return
-
-        if not isinstance(coordinator.data, list):
-            _LOGGER.error("Unexpected data format: %s", type(coordinator.data))
-            return
-
+    # Ensure data is fetched before creating entities
+    if not coordinator.last_update_success and not coordinator.data:
+        await coordinator.async_config_entry_first_refresh()
+    
+    # Create entities directly from the current data
+    if coordinator.data:
         entities: List[OpenBankingBalanceSensor] = []
         platform = async_get_current_platform()
         existing_entity_ids = {entity.unique_id for entity in platform.entities.values()}
 
         for account in coordinator.data:
-            _LOGGER.warning("Adding sensor for account: %s", account._account_id)
-            acct_id = account._account_id
-
+            _LOGGER.debug("Creating sensors for account: %s", account._account_id)
+            
             for bal in account.balances:
                 balance_type: str = bal["balanceType"]
-                # Generate the unique ID in the same way as the sensor class does
                 unique_id: str = f"{account.name}_{balance_type}_{entry.entry_id}"
 
                 if unique_id not in existing_entity_ids:
@@ -72,26 +56,21 @@ async def async_setup_entry(
                         balance_type
                     )
                     entities.append(sensor)
-                    new_sensors.append(sensor)
                     existing_entity_ids.add(unique_id)
 
         if entities:
-            _LOGGER.warning("Adding %d new sensors", len(entities))
+            _LOGGER.debug("Adding %d new sensors", len(entities))
             async_add_entities(entities)
 
-    # Ensure data is fetched before attempting entity creation
-    if not coordinator.last_update_success:
-        await coordinator.async_config_entry_first_refresh()
 
-
-class OpenBankingBalanceSensor(SensorEntity):
+class OpenBankingBalanceSensor(CoordinatorEntity, SensorEntity):
     """
     Represents an Open Banking bank account balance as a sensor in Home Assistant.
 
     Attributes:
         coordinator (OpenBankingDataUpdateCoordinator): Data update coordinator instance.
         _config_entry_id (str): The configuration entry ID associated with this sensor.
-        _account: The bank account object associated with this sensor.
+        _account_id (str): The ID of the bank account associated with this sensor.
         _balance_type (str): The type of balance being tracked (e.g., 'closingBooked').
     """
 
@@ -105,14 +84,18 @@ class OpenBankingBalanceSensor(SensorEntity):
             account: BankAccount,
             balance_type: str
     ) -> None:
-        self.coordinator = coordinator
+        """Initialize the sensor."""
+        # Initialize the CoordinatorEntity first
+        super().__init__(coordinator)
+        
+        # Store account ID instead of object reference
         self._config_entry_id = config_entry_id
-        self._account = account
+        self._account_id = account._account_id
         self._balance_type = balance_type
-        self._last_updated = account._last_updated
+        self._account_name = account.name
+        
         self._attr_unique_id: str = f"{account.name}_{balance_type}_{config_entry_id}"
         self._attr_name: str = f"{account.name}_{balance_type}"
-        self._attr_available: bool = True
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, config_entry_id, account.name)},
             name=account.name,
@@ -129,17 +112,35 @@ class OpenBankingBalanceSensor(SensorEntity):
         }
 
     @property
+    def _account(self) -> Optional[BankAccount]:
+        """Get the current account object from coordinator data."""
+        if not self.coordinator.data:
+            return None
+            
+        for account in self.coordinator.data:
+            if account._account_id == self._account_id:
+                # Update extra state attributes with latest data
+                self._attr_extra_state_attributes["last_updated"] = account._last_updated
+                self._attr_extra_state_attributes["account_status"] = account.status
+                return account
+                
+        return None
+        
+    @property
     def native_unit_of_measurement(self) -> Optional[str]:
         """
         Return the currency as the unit of measurement.
         """
-        for bal in self._account.balances:
+        account = self._account
+        if not account:
+            return None
+            
+        for bal in account.balances:
             if bal["balanceType"] == self._balance_type:
                 currency = bal["currency"]
                 if currency:
                     return currency
 
-        self._attr_available = False
         return None
 
     @property
@@ -150,36 +151,40 @@ class OpenBankingBalanceSensor(SensorEntity):
         Returns:
             float: The current balance amount.
         """
-        _LOGGER.warning(
-            "Fetching native_value for entity: %s | Account: %s | Data: %s",
-            self.entity_id, self._account._account_id, self.coordinator.data
+        account = self._account
+        if not account:
+            _LOGGER.debug(
+                "No account data found for entity: %s | Account ID: %s",
+                self.entity_id, self._account_id
+            )
+            return None
+            
+        _LOGGER.debug(
+            "Fetching native_value for entity: %s | Account: %s",
+            self.entity_id, account._account_id
         )
-
-        for bal in self._account.balances:
+        
+        for bal in account.balances:
             if bal["balanceType"] == self._balance_type:
                 amount = bal.get("amount")
 
                 # Ensure amount is valid
                 if amount is None or amount == "":
-                    _LOGGER.warning(
+                    _LOGGER.debug(
                         "Balance amount for %s is None or empty, setting to 0.0",
                         self._attr_unique_id
                     )
-                    self._attr_available = False  # Mark entity as unavailable
-
-                    return 0.0  # Prevent TypeError
+                    return 0.0
 
                 try:
-                    balance_value = float(amount) # REMOVE THIS LINE
-                    _LOGGER.warning(
-                        "Sensor updated: entity_id=%s, account_id=%s, balance_type=%s, balance_value=%.2f",
+                    value = float(amount)
+                    _LOGGER.debug(
+                        "Sensor value: entity_id=%s, balance_type=%s, value=%.2f",
                         self.entity_id,
-                        self._account._account_id,
                         self._balance_type,
-                        balance_value
-                    ) # REMOVE THIS LINE
-
-                    return float(amount)
+                        value
+                    )
+                    return value
 
                 except ValueError:
                     _LOGGER.error(
@@ -187,47 +192,11 @@ class OpenBankingBalanceSensor(SensorEntity):
                         self._attr_unique_id,
                         amount
                     )
-
                     return 0.0
 
-        self._attr_available = False  # Mark entity as unavailable if no valid balance found
-
+        # No matching balance found
         return 0.0
 
-    @property
-    def should_poll(self) -> bool:
-        return False
-
-    def update(self):
-        """
-        Polling is disabled; state updates are handled via the coordinator.
-        """
-        pass
-
-    async def _handle_coordinator_update(self) -> None:
-        """
-        Ensure Home Assistant registers state and attribute updates when coordinator data updates.
-        """
-        _LOGGER.warning(
-            "Sensor update triggered for entity: %s | Account: %s | Data: %s",
-            self.entity_id, self._account._account_id, self.coordinator.data
-        )
-
-        self.async_write_ha_state()
-
-    async def async_added_to_hass(self) -> None:
-        """
-        Handle actions when the sensor entity is added to Home Assistant.
-        """
-        _LOGGER.warning(
-            "Sensor entity added to Home Assistant: %s | Account: %s | Data: %s",
-            self.entity_id, self._account._account_id, self.coordinator.data
-        )
-        
-        self.async_on_remove(
-            self.coordinator.async_add_listener(self.async_write_ha_state)
-        )
-        self.async_write_ha_state()
 
     @property
     def available(self) -> bool:
@@ -237,7 +206,8 @@ class OpenBankingBalanceSensor(SensorEntity):
         Returns:
             bool: True if the sensor should be considered available, False otherwise.
         """
-        if not self.coordinator.last_update_success:
+        account = self._account
+        if not self.coordinator.last_update_success or not account:
             return False
 
-        return any(bal["balanceType"] for bal in self._account.balances)
+        return any(bal["balanceType"] for bal in account.balances)
