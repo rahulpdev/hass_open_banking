@@ -99,6 +99,9 @@ class NordigenWrapper:
 
         This method uses the existing refresh token to obtain a new access token.
         If the refresh token is expired, it generates a new token pair.
+        
+        Important: This also reinitializes the manager with the new client to ensure
+        all subsequent API calls use the new token.
 
         Raises:
             NordigenAPIError: If the token refresh process fails.
@@ -114,6 +117,14 @@ class NordigenWrapper:
             # Update the stored refresh token if a new one is returned
             if new_refresh_token:
                 self._refresh_token = new_refresh_token
+                
+            # Re-initialize the manager with the new client
+            self.manager = BankAccountManager(
+                client=self.client,
+                requisition_id=self._requisition_id,
+                fetch_data=False
+            )
+            self.accounts = self.manager.accounts
 
         except NordigenAPIError as e:
             raise

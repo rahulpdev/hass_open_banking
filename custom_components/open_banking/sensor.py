@@ -1,5 +1,6 @@
 import logging
 from typing import List, Optional
+from datetime import datetime, timezone, timedelta
 
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
@@ -8,7 +9,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback, async_get
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import DOMAIN, UPDATE_INTERVAL_HOURS
 from .coordinator import OpenBankingDataUpdateCoordinator
 from .nordigen_wrapper import BankAccount
 
@@ -31,12 +32,26 @@ async def async_setup_entry(
     _LOGGER.warning("Open Banking sensor setup is starting!")
     coordinator: OpenBankingDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
 
-    # Always ensure data is fetched during initial setup
+    # Check if we need to fetch data based on last update time and update interval
     _LOGGER.warning("Checking if data needs to be fetched: last_update_success=%s, has_data=%s", 
                  coordinator.last_update_success, bool(coordinator.data))
     
+    current_time = datetime.now(timezone.utc)
+    update_needed = False
+    
+    # If we have no data, we might need to refresh
     if not coordinator.data:
-        _LOGGER.warning("No data available, triggering first refresh")
+        # But only if we haven't updated recently (to avoid hitting rate limits on restarts)
+        if not coordinator.last_update_success_time or (
+            current_time - coordinator.last_update_success_time > 
+            timedelta(hours=UPDATE_INTERVAL_HOURS/2)  # Use half the normal interval as a buffer
+        ):
+            update_needed = True
+            _LOGGER.warning("No data available and sufficient time has passed, triggering refresh")
+        else:
+            _LOGGER.warning("No data but recent update attempted, skipping refresh to avoid rate limits")
+    
+    if update_needed:
         await coordinator.async_config_entry_first_refresh()
         _LOGGER.warning("After refresh: has_data=%s", bool(coordinator.data))
     

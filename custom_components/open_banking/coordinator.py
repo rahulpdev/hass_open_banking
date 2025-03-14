@@ -38,6 +38,7 @@ class OpenBankingDataUpdateCoordinator(DataUpdateCoordinator):
         _LOGGER.warning("Type of self.entry: %s", type(self.entry))
 
         self.wrapper: Optional[NordigenWrapper] = None  # Initialize as None
+        self.last_update_success_time: Optional[datetime] = None  # Track when updates succeed
 
     async def async_initialize(self, hass: HomeAssistant) -> None:
         """
@@ -109,7 +110,11 @@ class OpenBankingDataUpdateCoordinator(DataUpdateCoordinator):
             
             # Always return fresh data, don't trigger another refresh
             self.data = accounts
-
+            
+            # Track when this successful update happened
+            self.last_update_success_time = datetime.now(timezone.utc)
+            _LOGGER.warning("Update successful, timestamp: %s", self.last_update_success_time)
+            
             return accounts
 
         except NordigenAPIError as e:
