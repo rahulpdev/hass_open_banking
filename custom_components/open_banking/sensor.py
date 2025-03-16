@@ -32,26 +32,41 @@ async def async_setup_entry(
     _LOGGER.warning("Open Banking sensor setup is starting!")
     coordinator: OpenBankingDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
 
-    # Check if we need to fetch data based on last update time and update interval
+    # Check if we need to fetch data based on last update time and rate limits
     _LOGGER.warning("Checking if data needs to be fetched: last_update_success=%s, has_data=%s", 
                  coordinator.last_update_success, bool(coordinator.data))
     
     current_time = datetime.now(timezone.utc)
     update_needed = False
     
+    # Check if we're currently rate limited
+    rate_limited = False
+    if hasattr(coordinator, 'rate_limit_reset') and coordinator.rate_limit_reset:
+        if coordinator.rate_limit_reset > current_time:
+            rate_limited = True
+            _LOGGER.warning("Rate limit in effect until %s, skipping refresh", 
+                         coordinator.rate_limit_reset)
+    
     # If we have no data, we might need to refresh
-    if not coordinator.data:
-        # But only if we haven't updated recently (to avoid hitting rate limits on restarts)
-        if not coordinator.last_update_success_time or (
-            current_time - coordinator.last_update_success_time > 
-            timedelta(hours=UPDATE_INTERVAL_HOURS/2)  # Use half the normal interval as a buffer
-        ):
+    if not coordinator.data and not rate_limited:
+        # Check if we have a last update time from the config entry
+        if not hasattr(coordinator, 'last_update_time') or not coordinator.last_update_time:
+            # No previous update time, so we should refresh
             update_needed = True
-            _LOGGER.warning("No data available and sufficient time has passed, triggering refresh")
+            _LOGGER.warning("No data and no previous update time, triggering refresh")
         else:
-            _LOGGER.warning("No data but recent update attempted, skipping refresh to avoid rate limits")
+            # Check if enough time has passed since the last update
+            time_since_update = current_time - coordinator.last_update_time
+            if time_since_update > timedelta(hours=UPDATE_INTERVAL_HOURS/2):
+                update_needed = True
+                _LOGGER.warning("No data and %s since last update, triggering refresh", 
+                             time_since_update)
+            else:
+                _LOGGER.warning("No data but only %s since last update, skipping refresh", 
+                             time_since_update)
     
     if update_needed:
+        _LOGGER.warning("Triggering coordinator refresh")
         await coordinator.async_config_entry_first_refresh()
         _LOGGER.warning("After refresh: has_data=%s", bool(coordinator.data))
     

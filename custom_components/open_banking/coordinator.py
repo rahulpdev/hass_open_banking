@@ -26,19 +26,43 @@ class OpenBankingDataUpdateCoordinator(DataUpdateCoordinator):
             hass (HomeAssistant): The Home Assistant instance.
             entry (Dict[str, Any]): The configuration entry containing user credentials and requisition data.
         """
+        # Calculate update interval - use stored rate limit if available
+        update_interval = self._get_update_interval(entry)
+        
         super().__init__(
             hass,
             _LOGGER,
             name=DOMAIN,
-            update_interval=timedelta(hours=UPDATE_INTERVAL_HOURS),
+            update_interval=update_interval,
         )
         self.entry: ConfigEntry = entry
-
+        self.wrapper: Optional[NordigenWrapper] = None  # Initialize as None
+        
         # Debug log to verify the actual type of self.entry
         _LOGGER.warning("Type of self.entry: %s", type(self.entry))
-
-        self.wrapper: Optional[NordigenWrapper] = None  # Initialize as None
-        self.last_update_success_time: Optional[datetime] = None  # Track when updates succeed
+        
+        # Get the last update time from config entry data if available
+        last_update_str = entry.data.get("last_update_time")
+        if last_update_str:
+            try:
+                self.last_update_time = datetime.fromisoformat(last_update_str)
+                _LOGGER.warning("Retrieved last update time from config: %s", self.last_update_time)
+            except (ValueError, TypeError):
+                self.last_update_time = None
+                _LOGGER.warning("Invalid last_update_time format in config entry")
+        else:
+            self.last_update_time = None
+            
+        # Track rate limit expiry if set
+        rate_limit_reset = entry.data.get("rate_limit_reset")
+        if rate_limit_reset:
+            try:
+                self.rate_limit_reset = datetime.fromisoformat(rate_limit_reset)
+                _LOGGER.warning("Rate limit reset time: %s", self.rate_limit_reset)
+            except (ValueError, TypeError):
+                self.rate_limit_reset = None
+        else:
+            self.rate_limit_reset = None
 
     async def async_initialize(self, hass: HomeAssistant) -> None:
         """
@@ -111,9 +135,10 @@ class OpenBankingDataUpdateCoordinator(DataUpdateCoordinator):
             # Always return fresh data, don't trigger another refresh
             self.data = accounts
             
-            # Track when this successful update happened
-            self.last_update_success_time = datetime.now(timezone.utc)
-            _LOGGER.warning("Update successful, timestamp: %s", self.last_update_success_time)
+            # Store the update time in the config entry for persistence across restarts
+            current_time = datetime.now(timezone.utc)
+            self._update_config_entry_timestamp(current_time)
+            _LOGGER.warning("Update successful, timestamp: %s", current_time)
             
             return accounts
 
@@ -152,6 +177,19 @@ class OpenBankingDataUpdateCoordinator(DataUpdateCoordinator):
                     wait_time,
                     e.status_code
                 )
+
+                # Calculate when the rate limit will reset
+                reset_time = datetime.now(timezone.utc) + timedelta(seconds=wait_time)
+                
+                # Store the rate limit reset time in the config entry
+                self.hass.config_entries.async_update_entry(
+                    self.entry,
+                    data={
+                        **self.entry.data,
+                        "rate_limit_reset": reset_time.isoformat()
+                    }
+                )
+                self.rate_limit_reset = reset_time
 
                 # Prevent scheduled updates from triggering before wait_time elapses
                 self.update_interval = timedelta(seconds=wait_time)
@@ -197,3 +235,44 @@ class OpenBankingDataUpdateCoordinator(DataUpdateCoordinator):
         except Exception:
             _LOGGER.exception("Unexpected error updating Nordigen data")
             raise UpdateFailed("Error updating from Nordigen")
+            
+    def _get_update_interval(self, entry: ConfigEntry) -> timedelta:
+        """
+        Calculate the appropriate update interval based on rate limits or config.
+        
+        If we have a stored rate limit reset time that's in the future, use that.
+        Otherwise, use the default update interval from const.py.
+        """
+        rate_limit_reset = entry.data.get("rate_limit_reset")
+        if rate_limit_reset:
+            try:
+                reset_time = datetime.fromisoformat(rate_limit_reset)
+                now = datetime.now(timezone.utc)
+                
+                # If the reset time is in the future, calculate seconds until reset
+                if reset_time > now:
+                    seconds_until_reset = (reset_time - now).total_seconds()
+                    _LOGGER.warning("Rate limit reset in %d seconds", seconds_until_reset)
+                    return timedelta(seconds=seconds_until_reset)
+            except (ValueError, TypeError):
+                pass
+                
+        # Default to the normal update interval
+        return timedelta(hours=UPDATE_INTERVAL_HOURS)
+        
+    def _update_config_entry_timestamp(self, timestamp: datetime) -> None:
+        """
+        Update the config entry with the latest update timestamp.
+        
+        This ensures the timestamp persists across Home Assistant restarts.
+        """
+        self.last_update_time = timestamp
+        
+        # Update the config entry with the new timestamp
+        self.hass.config_entries.async_update_entry(
+            self.entry,
+            data={
+                **self.entry.data,
+                "last_update_time": timestamp.isoformat()
+            }
+        )

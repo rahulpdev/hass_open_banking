@@ -26,20 +26,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """
     hass.data.setdefault(DOMAIN, {})
 
-    # Initialize coordinator but don't refresh yet
+    # Initialize coordinator
     coordinator: OpenBankingDataUpdateCoordinator = OpenBankingDataUpdateCoordinator(
         hass, entry
     )
     await coordinator.async_initialize(hass)
 
-    # Store coordinator before refreshing
+    # Store coordinator in hass.data
     hass.data[DOMAIN][entry.entry_id] = {
         "coordinator": coordinator
     }
 
     _LOGGER.warning("Setting up Nordigen sensors...")
     
-    # First refresh will be done during sensor setup to prevent multiple API calls
+    # Forward the entry to the sensor platform
+    # The sensor setup will check if a refresh is needed based on stored timestamps
     await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
 
     _LOGGER.warning("Nordigen Account integration successfully set up.")
