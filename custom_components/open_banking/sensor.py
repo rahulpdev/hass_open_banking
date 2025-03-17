@@ -32,8 +32,8 @@ async def async_setup_entry(
     _LOGGER.warning("Open Banking sensor setup is starting!")
     coordinator: OpenBankingDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
 
-    # The refresh logic is now handled in __init__.py based on the coordinator's needs_immediate_refresh
-    # We just need to create entities regardless of whether there's data
+    # The refresh logic is now handled in __init__.py
+    # We need to create entities regardless of whether there's data
     _LOGGER.warning("Sensor setup - coordinator data available: %s", bool(coordinator.data))
     
     # Create entities from the data (if available)
@@ -41,10 +41,26 @@ async def async_setup_entry(
     platform = async_get_current_platform()
     existing_entity_ids = {entity.unique_id for entity in platform.entities.values()}
 
-    # If we have data, create entities from it
+    # Get account IDs from previous runs (stored in config entry)
+    known_accounts = entry.data.get("known_accounts", [])
+    
+    # If we have live data, use it to create entities
     if coordinator.data:
         for account in coordinator.data:
             _LOGGER.warning("Creating sensors for account: %s", account._account_id)
+            
+            # Store this account ID for future runs
+            if account._account_id not in known_accounts:
+                known_accounts.append(account._account_id)
+                
+                # Update the config entry with the new account ID
+                hass.config_entries.async_update_entry(
+                    entry,
+                    data={
+                        **entry.data,
+                        "known_accounts": known_accounts
+                    }
+                )
             
             for bal in account.balances:
                 balance_type: str = bal["balanceType"]
@@ -60,9 +76,17 @@ async def async_setup_entry(
                     entities.append(sensor)
                     existing_entity_ids.add(unique_id)
     else:
-        _LOGGER.warning("No data available yet, entities will be created when data is available")
-        # The coordinator will update the entities when data becomes available
-        # Home Assistant will restore entity states from the registry
+        _LOGGER.warning("No live data available, checking for known accounts from previous runs")
+        
+        # If we have known accounts from previous runs, create placeholder entities
+        # These will be updated when the coordinator refreshes
+        if known_accounts:
+            _LOGGER.warning("Found %d known accounts from previous runs", len(known_accounts))
+            # We can't create entities without data, but Home Assistant will restore
+            # the entities from the registry if they existed before
+            _LOGGER.warning("Entities will be restored from registry with previous state")
+        else:
+            _LOGGER.warning("No known accounts found, entities will be created when data is available")
 
     if entities:
         _LOGGER.warning("Adding %d new sensors", len(entities))
