@@ -32,50 +32,17 @@ async def async_setup_entry(
     _LOGGER.warning("Open Banking sensor setup is starting!")
     coordinator: OpenBankingDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
 
-    # Check if we need to fetch data based on last update time and rate limits
-    _LOGGER.warning("Checking if data needs to be fetched: last_update_success=%s, has_data=%s", 
-                 coordinator.last_update_success, bool(coordinator.data))
-    
-    current_time = datetime.now(timezone.utc)
-    update_needed = False
-    
-    # Check if we're currently rate limited
-    rate_limited = False
-    if hasattr(coordinator, 'rate_limit_reset') and coordinator.rate_limit_reset:
-        if coordinator.rate_limit_reset > current_time:
-            rate_limited = True
-            _LOGGER.warning("Rate limit in effect until %s, skipping refresh", 
-                         coordinator.rate_limit_reset)
-    
-    # If we have no data, we might need to refresh
-    if not coordinator.data and not rate_limited:
-        # Check if we have a last update time from the config entry
-        if not hasattr(coordinator, 'last_update_time') or not coordinator.last_update_time:
-            # No previous update time, so we should refresh
-            update_needed = True
-            _LOGGER.warning("No data and no previous update time, triggering refresh")
-        else:
-            # Check if enough time has passed since the last update
-            time_since_update = current_time - coordinator.last_update_time
-            if time_since_update > timedelta(hours=UPDATE_INTERVAL_HOURS/2):
-                update_needed = True
-                _LOGGER.warning("No data and %s since last update, triggering refresh", 
-                             time_since_update)
-            else:
-                _LOGGER.warning("No data but only %s since last update, skipping refresh", 
-                             time_since_update)
-    
-    if update_needed:
-        _LOGGER.warning("Triggering coordinator refresh")
-        await coordinator.async_config_entry_first_refresh()
-        _LOGGER.warning("After refresh: has_data=%s", bool(coordinator.data))
+    # The refresh logic is now handled in __init__.py based on the coordinator's needs_immediate_refresh
+    # We just need to create entities regardless of whether there's data
+    _LOGGER.warning("Sensor setup - coordinator data available: %s", bool(coordinator.data))
     
     # Create entities from the data (if available)
-    if coordinator.data:
-        entities: List[OpenBankingBalanceSensor] = []
-        platform = async_get_current_platform()
-        existing_entity_ids = {entity.unique_id for entity in platform.entities.values()}
+    entities: List[OpenBankingBalanceSensor] = []
+    platform = async_get_current_platform()
+    existing_entity_ids = {entity.unique_id for entity in platform.entities.values()}
 
+    # If we have data, create entities from it
+    if coordinator.data:
         for account in coordinator.data:
             _LOGGER.warning("Creating sensors for account: %s", account._account_id)
             
@@ -92,10 +59,14 @@ async def async_setup_entry(
                     )
                     entities.append(sensor)
                     existing_entity_ids.add(unique_id)
+    else:
+        _LOGGER.warning("No data available yet, entities will be created when data is available")
+        # The coordinator will update the entities when data becomes available
+        # Home Assistant will restore entity states from the registry
 
-        if entities:
-            _LOGGER.warning("Adding %d new sensors", len(entities))
-            async_add_entities(entities)
+    if entities:
+        _LOGGER.warning("Adding %d new sensors", len(entities))
+        async_add_entities(entities)
 
 
 class OpenBankingBalanceSensor(CoordinatorEntity, SensorEntity):

@@ -26,8 +26,11 @@ class OpenBankingDataUpdateCoordinator(DataUpdateCoordinator):
             hass (HomeAssistant): The Home Assistant instance.
             entry (Dict[str, Any]): The configuration entry containing user credentials and requisition data.
         """
-        # Calculate update interval - use stored rate limit if available
-        update_interval = self._get_update_interval(entry)
+        # Get the last update time from config entry data
+        last_update_str = entry.data.get("last_update_time")
+        
+        # Calculate appropriate update interval
+        update_interval = self._calculate_next_update_interval(last_update_str)
         
         super().__init__(
             hass,
@@ -35,14 +38,17 @@ class OpenBankingDataUpdateCoordinator(DataUpdateCoordinator):
             name=DOMAIN,
             update_interval=update_interval,
         )
+        
         self.entry: ConfigEntry = entry
         self.wrapper: Optional[NordigenWrapper] = None  # Initialize as None
+        
+        # Store whether we need an immediate refresh
+        self._needs_immediate_refresh = self._should_refresh_immediately(last_update_str)
         
         # Debug log to verify the actual type of self.entry
         _LOGGER.warning("Type of self.entry: %s", type(self.entry))
         
         # Get the last update time from config entry data if available
-        last_update_str = entry.data.get("last_update_time")
         if last_update_str:
             try:
                 self.last_update_time = datetime.fromisoformat(last_update_str)
@@ -236,14 +242,15 @@ class OpenBankingDataUpdateCoordinator(DataUpdateCoordinator):
             _LOGGER.exception("Unexpected error updating Nordigen data")
             raise UpdateFailed("Error updating from Nordigen")
             
-    def _get_update_interval(self, entry: ConfigEntry) -> timedelta:
+    def _calculate_next_update_interval(self, last_update_str):
         """
-        Calculate the appropriate update interval based on rate limits or config.
+        Calculate time until next update based on last update time and rate limits.
         
-        If we have a stored rate limit reset time that's in the future, use that.
-        Otherwise, use the default update interval from const.py.
+        If we have a rate limit reset time in the future, use that.
+        Otherwise, calculate based on the last update time and normal interval.
         """
-        rate_limit_reset = entry.data.get("rate_limit_reset")
+        # First check if we're rate limited
+        rate_limit_reset = self.entry.data.get("rate_limit_reset")
         if rate_limit_reset:
             try:
                 reset_time = datetime.fromisoformat(rate_limit_reset)
@@ -256,9 +263,56 @@ class OpenBankingDataUpdateCoordinator(DataUpdateCoordinator):
                     return timedelta(seconds=seconds_until_reset)
             except (ValueError, TypeError):
                 pass
+        
+        # If not rate limited, calculate based on last update time
+        if not last_update_str:
+            return timedelta(hours=UPDATE_INTERVAL_HOURS)
+            
+        try:
+            last_update = datetime.fromisoformat(last_update_str)
+            now = datetime.now(timezone.utc)
+            
+            # Calculate time since last update
+            time_since_update = now - last_update
+            
+            # Calculate time until next update
+            normal_interval = timedelta(hours=UPDATE_INTERVAL_HOURS)
+            time_until_next_update = normal_interval - time_since_update
+            
+            # If we're past due for an update, update soon but not immediately
+            if time_until_next_update.total_seconds() <= 0:
+                return timedelta(seconds=60)  # Update in 1 minute
                 
-        # Default to the normal update interval
-        return timedelta(hours=UPDATE_INTERVAL_HOURS)
+            # Otherwise, wait until the next scheduled update
+            return time_until_next_update
+                
+        except (ValueError, TypeError):
+            # If we can't parse the timestamp, use default interval
+            return timedelta(hours=UPDATE_INTERVAL_HOURS)
+    
+    def _should_refresh_immediately(self, last_update_str):
+        """
+        Determine if we need an immediate refresh.
+        
+        We should refresh immediately if:
+        1. We have no previous update time
+        2. It's been longer than our update interval since the last update
+        """
+        if not last_update_str:
+            return True  # No previous update, refresh immediately
+            
+        try:
+            last_update = datetime.fromisoformat(last_update_str)
+            now = datetime.now(timezone.utc)
+            
+            # If it's been longer than our update interval, refresh immediately
+            if (now - last_update) > timedelta(hours=UPDATE_INTERVAL_HOURS):
+                return True
+                
+            return False  # Within update interval, don't refresh immediately
+                
+        except (ValueError, TypeError):
+            return False  # Can't parse timestamp, don't refresh to avoid rate limits
         
     def _update_config_entry_timestamp(self, timestamp: datetime) -> None:
         """

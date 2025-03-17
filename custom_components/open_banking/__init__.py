@@ -39,8 +39,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     _LOGGER.warning("Setting up Nordigen sensors...")
     
+    # Only trigger first refresh if needed based on last update time
+    if coordinator._needs_immediate_refresh:
+        _LOGGER.warning("Triggering initial refresh as needed")
+        await coordinator.async_config_entry_first_refresh()
+    else:
+        _LOGGER.warning("Skipping initial refresh as we're within update interval")
+    
     # Forward the entry to the sensor platform
-    # The sensor setup will check if a refresh is needed based on stored timestamps
     await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
 
     _LOGGER.warning("Nordigen Account integration successfully set up.")
