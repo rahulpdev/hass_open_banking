@@ -32,7 +32,7 @@ async def async_setup_entry(
     _LOGGER.warning("Open Banking sensor setup is starting!")
     coordinator: OpenBankingDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
 
-    # By this point, the coordinator should have data from either a fresh refresh or previous state
+    # Check if we have data in the coordinator
     _LOGGER.warning("Sensor setup - coordinator data available: %s", bool(coordinator.data))
     
     # Create entities from the data
@@ -40,7 +40,7 @@ async def async_setup_entry(
     platform = async_get_current_platform()
     existing_entity_ids = {entity.unique_id for entity in platform.entities.values()}
 
-    # If we have data, create entities from it
+    # If we have data in the coordinator, use it to create entities
     if coordinator.data:
         _LOGGER.warning("Creating sensors from coordinator data")
         for account in coordinator.data:
@@ -72,8 +72,8 @@ async def async_setup_entry(
                     entities.append(sensor)
                     existing_entity_ids.add(unique_id)
     else:
-        _LOGGER.warning("No coordinator data available - this should only happen on first setup")
-        _LOGGER.warning("Entities will be created when data becomes available")
+        _LOGGER.warning("No coordinator data available")
+        _LOGGER.warning("Home Assistant will restore entities from registry")
 
     if entities:
         _LOGGER.warning("Adding %d new sensors", len(entities))

@@ -39,19 +39,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     _LOGGER.warning("Setting up Nordigen integration...")
     
-    # FIRST, decide whether to refresh the coordinator
-    # This follows the Home Assistant pattern of getting data before creating entities
+    # Forward to the sensor platform FIRST to ensure entities are created
+    # Home Assistant will restore entities from the registry
+    _LOGGER.warning("Setting up Nordigen sensors...")
+    await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
+    
+    # AFTER setting up entities, decide whether to refresh the coordinator
     if coordinator._needs_immediate_refresh:
         _LOGGER.warning("Triggering initial refresh to get account data")
         await coordinator.async_config_entry_first_refresh()
     else:
         _LOGGER.warning("Skipping immediate refresh as we're within update interval")
-        _LOGGER.warning("Using stored data from previous refresh")
-    
-    # AFTER deciding on refresh, forward to the sensor platform to create entities
-    # By this point, coordinator.data may be populated with fresh or stored data
-    _LOGGER.warning("Setting up Nordigen sensors...")
-    await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
+        _LOGGER.warning("Entities will be restored from registry with previous state")
 
     _LOGGER.warning("Nordigen Account integration successfully set up.")
 
