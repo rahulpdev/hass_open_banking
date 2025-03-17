@@ -26,10 +26,14 @@ class OpenBankingDataUpdateCoordinator(DataUpdateCoordinator):
             hass (HomeAssistant): The Home Assistant instance.
             entry (Dict[str, Any]): The configuration entry containing user credentials and requisition data.
         """
+        # Store entry first, before any methods try to use it
+        self.entry: ConfigEntry = entry
+        self.wrapper: Optional[NordigenWrapper] = None  # Initialize as None
+        
         # Get the last update time from config entry data
         last_update_str = entry.data.get("last_update_time")
         
-        # Calculate appropriate update interval
+        # Now we can safely call methods that use self.entry
         update_interval = self._calculate_next_update_interval(last_update_str)
         
         super().__init__(
@@ -38,9 +42,6 @@ class OpenBankingDataUpdateCoordinator(DataUpdateCoordinator):
             name=DOMAIN,
             update_interval=update_interval,
         )
-        
-        self.entry: ConfigEntry = entry
-        self.wrapper: Optional[NordigenWrapper] = None  # Initialize as None
         
         # Store whether we need an immediate refresh
         self._needs_immediate_refresh = self._should_refresh_immediately(last_update_str)
@@ -250,7 +251,7 @@ class OpenBankingDataUpdateCoordinator(DataUpdateCoordinator):
         Otherwise, calculate based on the last update time and normal interval.
         """
         # First check if we're rate limited
-        rate_limit_reset = self.entry.data.get("rate_limit_reset")
+        rate_limit_reset = self.entry.data.get("rate_limit_reset") if hasattr(self, 'entry') else None
         if rate_limit_reset:
             try:
                 reset_time = datetime.fromisoformat(rate_limit_reset)
@@ -298,6 +299,10 @@ class OpenBankingDataUpdateCoordinator(DataUpdateCoordinator):
         1. We have no previous update time
         2. It's been longer than our update interval since the last update
         """
+        # Safety check for entry attribute
+        if not hasattr(self, 'entry'):
+            return False  # Be conservative if we don't have entry yet
+            
         if not last_update_str:
             return True  # No previous update, refresh immediately
             
